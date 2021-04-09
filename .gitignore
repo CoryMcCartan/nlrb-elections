@@ -1,0 +1,10 @@
+*.tmp
+*.bak
+*.swp
+*.pdf
+*.aux
+*.log
+.DS_store
+.Rproj.user
+data-raw/*
+!data-raw/README.md
