@@ -1,0 +1,111 @@
+---
+title: "The Amazon Bessemer Election and NLRB Election Reruns"
+description: "What can historical elections tell us about the union's chances?"
+summary: >
+    If a new election is ordered in the RWDSU/Amazon case, it will be just as 
+    bitterly contested as the first election.  But the outcome of rerun elections
+    is often different than the inital election.  Here's what we might expect
+    from an election rerun.
+date: 2021-04-08
+output: 
+    md_document:
+        preserve_yaml: true
+slug: nlrb-reruns
+images:
+    - ./2021/04/nlrb-reruns/cover.png
+knit: 'local({source("~/Documents/Code/website/render_rmd.R", local=(e<-new.env())); e$render_site_post})'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, fig.path="figures/", fig.retina=2,
+                      dev.args=list(bg="transparent"), dev="ragg_png")
+
+knitr::knit_hooks$set(class = function(before, options, envir) {
+  if (before) sprintf("<figure class = '%s'>", options$class) else "</figure>"
+})
+```
+
+<span class="leadin">The union election in Bessemer, Alabama</span>, where
+Amazon warehouse workers are trying to join the Retail, Wholesale, and
+Department Store Union (RWDSU), has garnered international attention.  
+After a relatively long mail-in election and a ballot count prolonged by
+Amazon's ballot challenges, it appears the union has lost the initial count.
+
+```{r message=F}
+library(here)
+library(wacolors)
+library(scales)
+library(tidyverse)
+
+d = read_rds(here("data/one_union_elec.rds"))
+
+th = theme_minimal(base_family="Overpass", base_size=12) +
+    theme(plot.title=element_text(face="bold"))
+```
+
+# Things Could Change in the Final Count
+
+[challenged ballots]
+
+# What Happens in Rerun Elections
+The NLRB's review machinery is excruciatingly slow, and we can expect the path
+to a second election to be delayed at every step by Amazon's management lawyers.
+In that time, RWDSU will continue to organize, and the unit in the Bessemer
+warehouse will experience significant turnover (especially given Amazon's 
+abysmal turnover rates).  By the time the workers head to the polls again, 
+in other words, the situation could be very different.
+
+```{r}
+d_re = group_by(d, case) %>%
+    filter("Rerun" %in% tally_type) %>%
+    drop_na(eligible, votes_yes, votes_no) %>%
+    arrange(tally_date, .by_group=TRUE) %>%
+    mutate(tally_type = str_to_lower(tally_type),
+           ballot_type = if_else(ballot_type=="Revised Single Labor Org", "revised", "single"),
+           votes_challenged = coalesce(votes_challenged, 0),
+           void_ballots = coalesce(void_ballots, 0)) %>%
+    filter(ballot_type=="single") %>%
+    filter(any("initial" %in% tally_type), any("rerun" %in% tally_type)) %>%
+    # get the first initial and last rerun
+    filter(row_number() %in% c(which.max(tally_type=="initial"), 
+                               n()+1-which.max(rev(tally_type)=="rerun"))) %>%
+    select(-reason_closed, -runoff_required) %>%
+    distinct() %>%
+    ungroup()
+
+d_re_sum = d_re %>%
+    pivot_wider(c(case:date_filed, region, union), 
+                names_from=tally_type,
+                values_from=c(eligible, void_ballots, votes_yes:challenges_determ)) %>%
+    transmute(state=state, region=region, 
+              date_filed=date_filed, date_closed=date_closed,
+              case_days = as.integer(date_closed - date_filed),
+              unit_size = pmax(eligible_rerun, eligible_initial, na.rm=T),
+              votes_counted_initial = coalesce(votes_counted_initial,
+                                               votes_yes_initial + votes_no_initial),
+              votes_counted_rerun = coalesce(votes_counted_rerun,
+                                               votes_yes_rerun + votes_no_rerun),
+              pct_initial = votes_yes_initial / votes_counted_initial,
+              pct_rerun = votes_yes_rerun / votes_counted_rerun,
+              rerun_chg = pct_rerun - pct_initial,
+              chal_initial = votes_challenged_initial,
+              chal_rerun = votes_challenged_rerun)
+
+drop_na(d_re_sum, unit_size, rerun_chg) %>%
+ggplot(aes(pct_initial, pct_rerun, size=unit_size, color=case_days)) +
+    geom_hline(yintercept=0.5, lty="dashed") +
+    geom_vline(xintercept=0.5, lty="dashed") +
+    geom_smooth(aes(group=pct_initial>0.5), method=lm, formula=y~x, color="black") +
+    geom_point() +
+    scale_x_continuous(labels=percent) +
+    scale_y_continuous(labels=percent) +
+    scale_size_continuous(labels=comma)  +
+    scale_color_continuous(labels=comma, trans="log10")  +
+    labs(title="Anything can happen",
+         subtitle="Union vote share, initial and rerun elections",
+         x="Union vote in initial election", 
+         y="Union vote in rerun election", 
+         size="Eligible voters",
+         color="Length of\ncase (days)") +
+    th
+```
